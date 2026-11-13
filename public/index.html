@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi aplicación</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <main class="container">
+
+        <!-- INICIO DE SESIÓN -->
+        <section id="login">
+            <h1>Bienvenido</h1>
+            <p>Inicia sesión en tu cuenta</p>
+
+            <form id="formLogin">
+
+                <input type="email" id="loginCorreo"
+                    placeholder="Correo electrónico" required>
+
+                <input type="password" id="loginPassword"
+                    placeholder="Contraseña" required>
+
+                <label class="mostrar-password">
+                    <input type="checkbox" id="mostrarLogin">
+                    Mostrar contraseña
+                </label>
+
+                <button type="submit">Iniciar sesión</button>
+
+            </form>
+
+            <p>¿No tienes cuenta?
+                <a href="#" id="irRegistro">Regístrate</a>
+            </p>
+        </section>
+
+
+        <!-- REGISTRO -->
+        <section id="registro" hidden>
+            <h1>Crear cuenta</h1>
+            <p>Registra tus datos</p>
+
+            <form id="formRegistro">
+
+                <input type="text" id="registroNombre"
+                    placeholder="Nombre completo" required>
+
+                <input type="email" id="registroCorreo"
+                    placeholder="Correo electrónico" required>
+
+                <input type="password" id="registroPassword"
+                    placeholder="Contraseña (mínimo 8 caracteres)" required>
+
+                <label class="mostrar-password">
+                    <input type="checkbox" id="mostrarRegistro">
+                    Mostrar contraseña
+                </label>
+
+                <button type="submit">Registrarme</button>
+
+            </form>
+
+            <p>¿Ya tienes cuenta?
+                <a href="#" id="irLogin">Inicia sesión</a>
+            </p>
+        </section>
+
+
+        <!-- PERFIL -->
+        <section id="perfil" hidden>
+            <h1>¡Bienvenido!</h1>
+
+            <p id="nombreUsuario"></p>
+            <p id="correoUsuario"></p>
+
+            <button id="cerrarSesion">Cerrar sesión</button>
+        </section>
+
+        <p id="mensaje"></p>
+
+    </main>
+
+    <script src="app.js"></script>
+
+</body>
+</html>
