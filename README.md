@@ -55,6 +55,10 @@ requieren rol `staff`.
   `GET /api/feedback`.
 - Adjuntos: imágenes JPG/PNG/WebP y PDF de hasta 10 MB por archivo; se guardan
   fuera de `public/` y se sirven mediante `GET /api/files/:id` con autorización.
+- Fotos: `PUT /api/pets/:id/photo` (campo `photo`, reemplaza la anterior; las
+  respuestas de mascotas traen `photo`) y `POST /api/adoption/animals/:id/photos`
+  (personal, campo `files`, hasta 10). Solo imágenes. Base existente: aplica
+  `database/migrations/002_archivos_mascotas.sql`.
 - Estado: `GET /api/health`; panel: `GET /api/dashboard`.
 
 El frontend consume estas rutas para sesión, dashboard, citas, mascotas,

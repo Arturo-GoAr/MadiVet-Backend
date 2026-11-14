@@ -132,7 +132,7 @@ CREATE TABLE IF NOT EXISTS reportes (
 CREATE TABLE IF NOT EXISTS archivos (
     id CHAR(36) NOT NULL,
     usuario_id INT NOT NULL,
-    tipo_recurso ENUM('cita', 'mensaje', 'reporte') NOT NULL,
+    tipo_recurso ENUM('cita', 'mensaje', 'reporte', 'mascota', 'adopcion') NOT NULL,
     recurso_id INT NOT NULL,
     nombre_original VARCHAR(255) NOT NULL,
     nombre_almacenado VARCHAR(255) NOT NULL,

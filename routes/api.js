@@ -168,6 +168,17 @@ async function removeUploadedFiles(files) {
     await Promise.all((files || []).map((file) => fs.unlink(file.path).catch(() => {})));
 }
 
+function onlyImages(files) {
+    return files.every((file) => file.mimetype.startsWith("image/"));
+}
+
+async function deleteStoredFiles(resourceType, resourceId) {
+    const [rows] = await pool.execute("SELECT id, nombre_almacenado FROM archivos WHERE tipo_recurso = ? AND recurso_id = ?", [resourceType, resourceId]);
+    if (!rows.length) return;
+    await pool.execute("DELETE FROM archivos WHERE tipo_recurso = ? AND recurso_id = ?", [resourceType, resourceId]);
+    await Promise.all(rows.map((row) => fs.unlink(path.join(uploadDirectory, path.basename(row.nombre_almacenado))).catch(() => {})));
+}
+
 router.post("/auth/register", async (req, res, next) => {
     const body = req.body || {};
     const nombre = readName(body.nombre ?? body.name, 100);
@@ -325,6 +336,7 @@ router.get("/pets", async (req, res, next) => {
         const [rows] = await pool.execute(
             `SELECT m.id, m.propietario_id, m.nombre, m.especie, m.sexo,
                     DATE_FORMAT(m.fecha_nacimiento, '%Y-%m-%d') AS fecha_nacimiento, m.notas,
+                    (SELECT a.id FROM archivos a WHERE a.tipo_recurso = 'mascota' AND a.recurso_id = m.id ORDER BY a.creado_en DESC LIMIT 1) AS foto_id,
                     COALESCE(JSON_ARRAYAGG(IF(v.id IS NULL, NULL, JSON_OBJECT(
                       'id', v.id, 'name', v.nombre, 'date', DATE_FORMAT(v.fecha, '%Y-%m-%d'),
                       'next', DATE_FORMAT(v.proxima_fecha, '%Y-%m-%d')
@@ -343,6 +355,7 @@ router.get("/pets", async (req, res, next) => {
             sex: row.sexo,
             birthDate: row.fecha_nacimiento,
             notes: row.notas,
+            photo: row.foto_id ? `/api/files/${row.foto_id}` : null,
             vaccines: typeof row.vacunas === "string" ? JSON.parse(row.vacunas).filter(Boolean) : row.vacunas.filter(Boolean)
         })) });
     } catch (error) {
@@ -356,7 +369,8 @@ router.get("/pets/:id", async (req, res, next) => {
     try {
         const [rows] = await pool.execute(
             `SELECT m.id, m.propietario_id, m.nombre, m.especie, m.sexo,
-                    DATE_FORMAT(m.fecha_nacimiento, '%Y-%m-%d') AS fecha_nacimiento, m.notas
+                    DATE_FORMAT(m.fecha_nacimiento, '%Y-%m-%d') AS fecha_nacimiento, m.notas,
+                    (SELECT a.id FROM archivos a WHERE a.tipo_recurso = 'mascota' AND a.recurso_id = m.id ORDER BY a.creado_en DESC LIMIT 1) AS foto_id
              FROM mascotas m WHERE m.id = ?`,
             [id]
         );
@@ -373,6 +387,7 @@ router.get("/pets/:id", async (req, res, next) => {
             id: String(pet.id), ownerId: String(pet.propietario_id), name: pet.nombre,
             species: pet.especie, sex: pet.sexo, birthDate: pet.fecha_nacimiento,
             notes: pet.notas,
+            photo: pet.foto_id ? `/api/files/${pet.foto_id}` : null,
             vaccines: vaccines.map((vaccine) => ({
                 id: String(vaccine.id), name: vaccine.nombre, date: vaccine.fecha,
                 next: vaccine.proxima_fecha, notes: vaccine.notas
@@ -446,9 +461,36 @@ router.delete("/pets/:id", async (req, res, next) => {
         const [rows] = await pool.execute("SELECT propietario_id FROM mascotas WHERE id = ?", [id]);
         if (!rows[0]) return sendError(res, 404, "PET_NOT_FOUND", "No se encontró la mascota.");
         if (!ownsOrStaff(req, rows[0].propietario_id)) return sendError(res, 403, "FORBIDDEN", "No tienes permiso para eliminar esta mascota.");
+        await deleteStoredFiles("mascota", id);
         await pool.execute("DELETE FROM mascotas WHERE id = ?", [id]);
         return res.status(204).end();
     } catch (error) {
+        return next(error);
+    }
+});
+
+router.put("/pets/:id/photo", upload.single("photo"), async (req, res, next) => {
+    const id = getId(req.params.id);
+    const files = req.file ? [req.file] : [];
+    if (!id || !files.length || !onlyImages(files)) {
+        await removeUploadedFiles(files);
+        return sendError(res, 400, "INVALID_INPUT", "Selecciona una imagen válida.");
+    }
+    try {
+        const [rows] = await pool.execute("SELECT propietario_id FROM mascotas WHERE id = ?", [id]);
+        if (!rows[0]) {
+            await removeUploadedFiles(files);
+            return sendError(res, 404, "PET_NOT_FOUND", "No se encontró la mascota.");
+        }
+        if (!ownsOrStaff(req, rows[0].propietario_id)) {
+            await removeUploadedFiles(files);
+            return sendError(res, 403, "FORBIDDEN", "No tienes permiso para modificar esta mascota.");
+        }
+        await deleteStoredFiles("mascota", id);
+        const [photo] = await saveFiles(files, getUserId(req), "mascota", id);
+        return res.status(201).json({ photo: `/api/files/${photo.id}` });
+    } catch (error) {
+        await removeUploadedFiles(files);
         return next(error);
     }
 });
@@ -621,6 +663,34 @@ router.post("/adoption/animals", requireRole("staff"), async (req, res, next) =>
         );
         return res.status(201).json({ id: String(result.insertId) });
     } catch (error) {
+        return next(error);
+    }
+});
+
+router.post("/adoption/animals/:id/photos", requireRole("staff"), upload.array("files", 5), async (req, res, next) => {
+    const id = getId(req.params.id);
+    const files = req.files || [];
+    if (!id || !files.length || !onlyImages(files)) {
+        await removeUploadedFiles(files);
+        return sendError(res, 400, "INVALID_INPUT", "Selecciona imágenes válidas.");
+    }
+    try {
+        const [rows] = await pool.execute("SELECT fotos FROM mascotas_adopcion WHERE id = ?", [id]);
+        if (!rows[0]) {
+            await removeUploadedFiles(files);
+            return sendError(res, 404, "ANIMAL_NOT_FOUND", "No se encontró la mascota.");
+        }
+        const current = typeof rows[0].fotos === "string" ? JSON.parse(rows[0].fotos) : rows[0].fotos || [];
+        if (current.length + files.length > 10) {
+            await removeUploadedFiles(files);
+            return sendError(res, 400, "INVALID_INPUT", "Máximo 10 fotos por mascota.");
+        }
+        const saved = await saveFiles(files, getUserId(req), "adopcion", id);
+        const photos = [...current, ...saved.map((file) => `/api/files/${file.id}`)];
+        await pool.execute("UPDATE mascotas_adopcion SET fotos = ? WHERE id = ?", [JSON.stringify(photos), id]);
+        return res.status(201).json({ photos });
+    } catch (error) {
+        await removeUploadedFiles(files);
         return next(error);
     }
 });
@@ -1019,9 +1089,10 @@ router.get("/files/:id", async (req, res, next) => {
     if (!/^[0-9a-f-]{36}$/i.test(fileId)) return sendError(res, 400, "INVALID_ID", "El identificador no es válido.");
     try {
         const [rows] = await pool.execute(
-            `SELECT a.*, c.propietario_id
+            `SELECT a.*, COALESCE(c.propietario_id, p.propietario_id) AS propietario_id
              FROM archivos a
              LEFT JOIN mensajes m ON a.tipo_recurso = 'mensaje' AND m.id = a.recurso_id
+             LEFT JOIN mascotas p ON a.tipo_recurso = 'mascota' AND p.id = a.recurso_id
              LEFT JOIN citas c ON (a.tipo_recurso = 'cita' AND c.id = a.recurso_id)
                                 OR (a.tipo_recurso = 'mensaje' AND c.id = m.cita_id)
              WHERE a.id = ?`,
@@ -1029,7 +1100,7 @@ router.get("/files/:id", async (req, res, next) => {
         );
         const file = rows[0];
         if (!file) return sendError(res, 404, "FILE_NOT_FOUND", "No se encontró el archivo.");
-        const canRead = isStaff(req) || Number(file.usuario_id) === getUserId(req) ||
+        const canRead = file.tipo_recurso === "adopcion" || isStaff(req) || Number(file.usuario_id) === getUserId(req) ||
             (file.propietario_id && Number(file.propietario_id) === getUserId(req));
         if (!canRead) return sendError(res, 403, "FORBIDDEN", "No tienes permiso para ver este archivo.");
         const filePath = path.join(uploadDirectory, path.basename(file.nombre_almacenado));
