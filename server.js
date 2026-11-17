@@ -14,6 +14,17 @@ if (!jwtSecret || jwtSecret.length < 32) {
 }
 
 app.disable("x-powered-by");
+// CORS: el frontend (Next, otro origen) llama a la API con Bearer token. FRONTEND_ORIGIN admite varios orígenes separados por coma.
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || "http://localhost:3000").split(",");
+app.use("/api", (req, res, next) => {
+    if (allowedOrigins.includes(req.headers.origin)) {
+        res.setHeader("Access-Control-Allow-Origin", req.headers.origin);
+        res.setHeader("Vary", "Origin");
+        res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+    }
+    return req.method === "OPTIONS" ? res.sendStatus(204) : next();
+});
 app.use(express.json({ limit: "32kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
